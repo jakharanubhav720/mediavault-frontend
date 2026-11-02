@@ -44,3 +44,41 @@ main {
     margin-right: auto;
   }
 }
+/* Consistent page width across MediaVault sections */
+html {
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+main {
+  width: 100%;
+  min-width: 0;
+}
+
+.page-container,
+.main-container,
+.app-container,
+.content-container {
+  width: min(92%, 1450px);
+  max-width: 1450px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+nav {
+  flex-wrap: nowrap;
+}
+
+nav > * {
+  min-width: 0;
+}
+
+@media (max-width: 850px) {
+  nav {
+    flex-wrap: wrap;
+  }
+}
