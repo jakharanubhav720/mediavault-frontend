@@ -21,6 +21,13 @@ export default function Home() {
   const [aiResults, setAiResults] = useState<Media[]>([]);
   const [visualFile, setVisualFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editorItem, setEditorItem] = useState<Media | null>(null);
+  const [editRotation, setEditRotation] = useState(0);
+  const [editFlip, setEditFlip] = useState(false);
+  const [editBrightness, setEditBrightness] = useState(100);
+  const [editContrast, setEditContrast] = useState(100);
+  const [editSaturation, setEditSaturation] = useState(100);
+  const [editCrop, setEditCrop] = useState("Original");
 
   async function loadMedia() {
     try {
@@ -95,6 +102,95 @@ export default function Home() {
     } catch (e) { setStatus(`Re-index failed: ${e instanceof Error ? e.message : "connection error"}`); }
     setBusy(false);
   }
+  function openEditor(item: Media) {
+    setEditorItem(item);
+    setEditRotation(0); setEditFlip(false);
+    setEditBrightness(100); setEditContrast(100); setEditSaturation(100);
+    setEditCrop("Original");
+  }
+
+  function resetEditor() {
+    setEditRotation(0); setEditFlip(false);
+    setEditBrightness(100); setEditContrast(100); setEditSaturation(100);
+    setEditCrop("Original");
+  }
+
+  async function saveEditedImage(downloadOnly = false) {
+    if (!editorItem) return;
+    setBusy(true); setStatus("Rendering your edited photo…");
+    let sourceUrl = "";
+    try {
+      // Fetch the original into a local blob so canvas export does not taint the canvas.
+      const response = await fetch(mediaUrl(editorItem));
+      if (!response.ok) throw new Error("Could not load the original image.");
+      const sourceBlob = await response.blob();
+      sourceUrl = URL.createObjectURL(sourceBlob);
+      const image = new Image();
+      image.src = sourceUrl;
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("The image could not be decoded."));
+      });
+
+      const angle = ((editRotation % 360) + 360) % 360;
+      const rotatedWidth = angle % 180 === 0 ? image.naturalWidth : image.naturalHeight;
+      const rotatedHeight = angle % 180 === 0 ? image.naturalHeight : image.naturalWidth;
+      const stage = document.createElement("canvas");
+      stage.width = rotatedWidth; stage.height = rotatedHeight;
+      const stageContext = stage.getContext("2d");
+      if (!stageContext) throw new Error("Your browser could not create an image editor.");
+      stageContext.translate(rotatedWidth / 2, rotatedHeight / 2);
+      stageContext.rotate(angle * Math.PI / 180);
+      stageContext.scale(editFlip ? -1 : 1, 1);
+      stageContext.filter = `brightness(${editBrightness}%) contrast(${editContrast}%) saturate(${editSaturation}%)`;
+      stageContext.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+
+      // Crop from the centre to the selected aspect ratio.
+      let cropWidth = stage.width; let cropHeight = stage.height;
+      const ratios: Record<string, number> = { "1:1": 1, "4:3": 4 / 3, "16:9": 16 / 9 };
+      const targetRatio = ratios[editCrop];
+      if (targetRatio) {
+        if (cropWidth / cropHeight > targetRatio) cropWidth = cropHeight * targetRatio;
+        else cropHeight = cropWidth / targetRatio;
+      }
+      const cropX = (stage.width - cropWidth) / 2;
+      const cropY = (stage.height - cropHeight) / 2;
+      const output = document.createElement("canvas");
+      output.width = Math.max(1, Math.round(cropWidth));
+      output.height = Math.max(1, Math.round(cropHeight));
+      const outputContext = output.getContext("2d");
+      if (!outputContext) throw new Error("Could not export the edited image.");
+      outputContext.drawImage(stage, cropX, cropY, cropWidth, cropHeight, 0, 0, output.width, output.height);
+
+      const editedBlob = await new Promise<Blob>((resolve, reject) => {
+        output.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Image export failed.")), "image/jpeg", .94);
+      });
+      const editedName = `edited-${editorItem.filename.replace(/\.[^.]+$/, "")}.jpg`;
+      if (downloadOnly) {
+        const downloadUrl = URL.createObjectURL(editedBlob);
+        const link = document.createElement("a");
+        link.href = downloadUrl; link.download = editedName; link.click();
+        URL.revokeObjectURL(downloadUrl);
+        setStatus("Edited photo downloaded. Your original is unchanged.");
+      } else {
+        // Save the edited result as a new library item; the original is never overwritten.
+        const form = new FormData();
+        form.append("file", editedBlob, editedName);
+        const upload = await fetch(`${API}/media`, { method: "POST", body: form });
+        const data = await upload.json().catch(() => ({}));
+        if (!upload.ok) throw new Error(data.detail || `Upload failed with status ${upload.status}`);
+        setStatus("Edited photo saved as a new item. Your original is unchanged.");
+        setEditorItem(null);
+        await loadMedia();
+      }
+    } catch (error) {
+      setStatus(`Photo edit failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      setBusy(false);
+    }
+  }
+
   async function deleteItem(item: Media) {
     if (!confirm(`Remove ${item.filename}?`)) return;
     try {
@@ -111,6 +207,7 @@ export default function Home() {
       <div className="card-body"><strong>{item.filename}</strong><p>{item.media_type} · {((item.size_bytes || 0) / 1024).toFixed(1)} KB</p>
       {item.description && item.description !== item.filename && <details><summary>AI description</summary><p>{item.description}</p></details>}
       {item.match_percent !== undefined && <div className="match"><strong>Match: {Number(item.match_percent).toFixed(1)}%</strong><div className="match-bar"><span style={{ width: `${Math.min(100, Math.max(0, Number(item.match_percent)))}%` }} /></div></div>}
+      {item.media_type === "Image" && <button className="button secondary small" onClick={() => openEditor(item)}>✦ Edit photo</button>}
       <button className="button secondary small" onClick={() => void deleteItem(item)}>Remove</button></div>
     </article>)}</div>;
   }
@@ -151,6 +248,28 @@ export default function Home() {
     {page === "AI Search" && <><Hero eyebrow="AI-POWERED DISCOVERY" title={<>Search by <span>Meaning.</span></>} text="Describe what you remember seeing, or upload a reference image. MediaVault searches indexed descriptions and ranks relevant results."/><div className="panel"><h2>🔎 Natural-language search</h2><p className="muted">Examples: a dog running on grass, students in a classroom, a red car near a mountain.</p><div className="search-row"><input value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void runAiSearch(); }} placeholder="Describe the media you want to find…"/><button className="button primary" disabled={busy} onClick={() => void runAiSearch()}>Search Media with AI</button></div><hr className="divider"/><h2>🖼️ Search by reference image</h2><p className="muted">Choose an image and see every saved image ranked by how closely it matches.</p><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setVisualFile(e.target.files?.[0] || null)}/><button className="button primary" disabled={busy} onClick={() => void runVisualSearch()}>{busy ? "Searching…" : "Find Visually Similar Media"}</button> <button className="button secondary" disabled={busy} onClick={() => void runReindex()}>Re-index saved images</button></div>{aiResults.length > 0 && <><h2 className="section-title">Search Results</h2>{cards(aiResults)}</>}</>}
 
     {page === "About" && <><Hero eyebrow="ABOUT THE PROJECT" title={<>Multimedia Database<br/><span>Management System</span></>} text="A multimedia management platform combining database storage with AI-assisted discovery."/><div className="panel about"><h2>Project Overview</h2><p>MediaVault stores uploaded images and videos, records their metadata in SQLite, and exposes a FastAPI backend. Optional AI features generate image descriptions and embeddings for natural-language and reference-image search.</p><h2>Main Features</h2><ul><li>Persistent SQLite metadata storage</li><li>Upload, preview, browse and delete media</li><li>Search and filter by filename, description and media type</li><li>AI-generated image descriptions</li><li>Semantic search using natural-language queries</li><li>Reference-image visual similarity search</li></ul><h2>Technology Stack</h2><p>Next.js frontend · FastAPI backend · SQLite database · file storage · local image-similarity matching with optional Gemini text search</p></div></>}
+    {editorItem && <div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorItem(null); }}>
+      <section className="photo-editor" role="dialog" aria-modal="true" aria-label="Photo editor">
+        <header className="editor-header"><div><span className="editor-kicker">MEDIAVAULT STUDIO</span><h2>Edit photo</h2><p>{editorItem.filename} · Original file stays untouched</p></div><button className="editor-close" onClick={() => setEditorItem(null)} aria-label="Close editor">×</button></header>
+        <div className="editor-layout">
+          <div className="editor-preview-wrap"><img className="editor-preview" src={mediaUrl(editorItem)} alt="Photo editing preview" style={{ filter: `brightness(${editBrightness}%) contrast(${editContrast}%) saturate(${editSaturation}%)`, transform: `rotate(${editRotation}deg) scaleX(${editFlip ? -1 : 1})` }}/></div>
+          <div className="editor-controls">
+            <div className="editor-group"><h3>Quick tools</h3><div className="editor-tool-row">
+              <button className="editor-tool" onClick={() => setEditRotation((v) => (v - 90 + 360) % 360)}>↶<span>Rotate left</span></button>
+              <button className="editor-tool" onClick={() => setEditRotation((v) => (v + 90) % 360)}>↷<span>Rotate right</span></button>
+              <button className={`editor-tool ${editFlip ? "selected" : ""}`} onClick={() => setEditFlip((v) => !v)}>⇋<span>Flip</span></button>
+            </div></div>
+            <div className="editor-group"><h3>Crop ratio</h3><div className="editor-presets">{["Original","1:1","4:3","16:9"].map((ratio) => <button key={ratio} className={`editor-chip ${editCrop === ratio ? "selected" : ""}`} onClick={() => setEditCrop(ratio)}>{ratio}</button>)}</div></div>
+            <div className="editor-group"><h3>Adjust</h3>
+              <label className="editor-slider">Brightness <output>{editBrightness}%</output><input type="range" min="50" max="150" value={editBrightness} onChange={(e) => setEditBrightness(Number(e.target.value))}/></label>
+              <label className="editor-slider">Contrast <output>{editContrast}%</output><input type="range" min="50" max="150" value={editContrast} onChange={(e) => setEditContrast(Number(e.target.value))}/></label>
+              <label className="editor-slider">Saturation <output>{editSaturation}%</output><input type="range" min="0" max="200" value={editSaturation} onChange={(e) => setEditSaturation(Number(e.target.value))}/></label>
+            </div>
+            <div className="editor-actions"><button className="button secondary" onClick={resetEditor}>Reset edits</button><button className="button secondary" disabled={busy} onClick={() => void saveEditedImage(true)}>Download copy</button><button className="button primary" disabled={busy} onClick={() => void saveEditedImage(false)}>{busy ? "Saving…" : "Save as new photo"}</button></div>
+          </div>
+        </div>
+      </section>
+    </div>}
     <footer className="footer">◈ MediaVault · Multimedia Database Management System <span>Store · Discover · Organize</span></footer>
   </main>;
 }
