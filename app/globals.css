@@ -428,3 +428,38 @@ body {
   .editor-preview { max-height:42vh; }
   .editor-header { padding:17px; }
 }
+
+
+/* MediaVault Studio — video editor controls */
+.video-editor .editor-layout { grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr); }
+.video-editor-preview-column { min-width:0; display:flex; flex-direction:column; gap:16px; }
+.video-editor-preview {
+  display:block; width:100%; max-height:55vh; min-height:260px; object-fit:contain;
+  border:1px solid rgba(255,255,255,.14); border-radius:17px;
+  background:radial-gradient(ellipse,rgba(255,255,255,.08),#050505);
+  transition:filter .18s ease,transform .2s ease;
+}
+.video-export-canvas { position:fixed; left:-10000px; top:0; width:1px; height:1px; opacity:0; pointer-events:none; }
+.video-trim-panel {
+  border:1px solid rgba(255,255,255,.14); border-radius:16px; padding:17px;
+  background:rgba(255,255,255,.045); box-shadow:inset 0 1px rgba(255,255,255,.08);
+}
+.video-trim-panel h3 { margin:0 0 14px; font-size:14px; }
+.video-trim-panel h3 span { margin-right:8px; color:#fff; }
+.video-time-inputs { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.video-time-inputs label { display:flex; flex-direction:column; gap:7px; color:#c9c9ce; font-size:11px; }
+.video-time-inputs input {
+  width:100%; min-width:0; border:1px solid rgba(255,255,255,.18); border-radius:10px;
+  padding:10px 11px; background:rgba(255,255,255,.07); color:#fff; font:inherit;
+}
+.video-trim-range { display:grid; gap:4px; margin:14px 0 8px; }
+.video-trim-range input { width:100%; accent-color:#f2f2f2; cursor:pointer; }
+.video-duration-note { margin:8px 0 0; color:#aaa; font-size:11px; }
+.video-editor .editor-tool-row { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.video-editor .editor-actions { margin-top:auto; }
+.video-editor .editor-tool.selected { border-color:rgba(255,255,255,.7); background:rgba(255,255,255,.16); }
+@media(max-width:760px) {
+  .video-editor .editor-layout { grid-template-columns:1fr; }
+  .video-editor-preview { min-height:210px; max-height:38vh; }
+  .video-time-inputs { grid-template-columns:1fr 1fr; }
+}
