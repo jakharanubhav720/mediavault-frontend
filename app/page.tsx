@@ -132,7 +132,19 @@ export default function Home() {
       <section><h2 className="section-title">Your Workspace</h2><div className="feature-grid"><Feature icon="🔎" title="Explore Your Media" text="Search filenames, inspect AI descriptions and filter by media type." action="Open Library →" onClick={() => setPage("Media Library")}/><Feature icon="📤" title="Upload Center" text="Save images and videos to disk storage with SQLite metadata." action="Upload Media →" onClick={() => setPage("Upload Media")}/><Feature icon="🧠" title="AI Visual Search" text="Find media using natural language or a reference image." action="Search with AI →" onClick={() => setPage("AI Search")}/></div></section>
     </>}
 
-    {page === "Media Library" && <><Hero eyebrow="YOUR DIGITAL COLLECTION" title={<>Explore Your <span>Media.</span></>} text="Browse your saved images and videos. Search filenames or AI-generated descriptions."/><div className="toolbar"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search filename or image description…"/><select value={filter} onChange={(e) => setFilter(e.target.value)}><option value="All">All Files</option><option value="Image">Images</option><option value="Video">Videos</option></select><button className="button secondary" onClick={() => void loadMedia()}>Refresh</button></div><p className="section-sub">{filtered.length} matching asset(s)</p>{cards(filtered)}</>}
+    {page === "Media Library" && <><Hero eyebrow="YOUR DIGITAL COLLECTION" title={<>Explore Your <span>Media.</span></>} text="Browse your saved photos and videos in separate, organized libraries."/>
+      <div className="library-switcher" role="tablist" aria-label="Media library type">
+        <button type="button" role="tab" aria-selected={filter === "Image"} className={`library-tab ${filter === "Image" ? "active" : ""}`} onClick={() => setFilter("Image")}>
+          <span className="library-tab-icon">▧</span><span className="library-tab-copy"><strong>Photo Library</strong><small>{images} {images === 1 ? "photo" : "photos"}</small></span>
+        </button>
+        <button type="button" role="tab" aria-selected={filter === "Video"} className={`library-tab ${filter === "Video" ? "active" : ""}`} onClick={() => setFilter("Video")}>
+          <span className="library-tab-icon">▷</span><span className="library-tab-copy"><strong>Video Library</strong><small>{videos} {videos === 1 ? "video" : "videos"}</small></span>
+        </button>
+      </div>
+      <div className="toolbar"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={filter === "Video" ? "Search video filename or description…" : "Search photo filename or description…"}/><button className="button secondary" onClick={() => void loadMedia()}>Refresh</button></div>
+      <div className="library-heading"><div><h2>{filter === "Video" ? "Your Videos" : "Your Photos"}</h2><p className="section-sub">{filtered.length} {filter === "Video" ? "video" : "photo"} asset(s)</p></div><span className="library-count">{filter === "Video" ? "VIDEO COLLECTION" : "PHOTO COLLECTION"}</span></div>
+      {cards(filtered)}
+    </>}
 
     {page === "Upload Media" && <><Hero eyebrow="UPLOAD CENTER" title={<>Add Your <span>Media.</span></>} text="Upload images and videos to your MediaVault library. Supported formats: PNG, JPG, JPEG, WEBP, GIF, MP4, MOV, WEBM and AVI."/><div className="panel upload-panel"><label className="upload-box"><span className="upload-icon">⇧</span><strong>{busy ? "Uploading files…" : "Choose images or videos"}</strong><span>Click to select one or more files · up to 50 MB each</span><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,video/x-msvideo" onChange={(e) => void uploadFiles(e)} disabled={busy}/></label>{status && <p className="status-text">{status}</p>}</div></>}
 
