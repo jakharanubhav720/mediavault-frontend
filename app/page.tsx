@@ -233,7 +233,10 @@ export default function Home() {
     const video = videoRef.current;
     const canvas = videoCanvasRef.current;
     if (!video || !canvas || !videoObjectUrl) return;
-    if (!("MediaRecorder" in window) || !canvas.captureStream || !video.captureStream) {
+    // captureStream() on HTMLVideoElement is supported by modern browsers,
+    // but is not included in every TypeScript DOM library version.
+    const captureVideo = video as HTMLVideoElement & { captureStream?: () => MediaStream };
+    if (!("MediaRecorder" in window) || typeof canvas.captureStream !== "function" || typeof captureVideo.captureStream !== "function") {
       setStatus("Video export is not supported by this browser. Try the latest Chrome or Edge.");
       return;
     }
@@ -275,7 +278,7 @@ export default function Home() {
       });
 
       const canvasStream = canvas.captureStream(30);
-      const sourceStream = video.captureStream();
+      const sourceStream = captureVideo.captureStream();
       const tracks = [...canvasStream.getVideoTracks(), ...(videoMuted ? [] : sourceStream.getAudioTracks())];
       const outputStream = new MediaStream(tracks);
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
