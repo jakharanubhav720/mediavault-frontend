@@ -274,7 +274,6 @@ export default function Home() {
         window.setTimeout(() => reject(new Error("Video seek timed out.")), 10000);
       });
 
-      drawFrame();
       const canvasStream = canvas.captureStream(30);
       const sourceStream = video.captureStream();
       const tracks = [...canvasStream.getVideoTracks(), ...(videoMuted ? [] : sourceStream.getAudioTracks())];
@@ -297,6 +296,7 @@ export default function Home() {
       };
       recorder.start(250);
       await video.play();
+      drawFrame();
       await finished;
       cancelAnimationFrame(animation);
       video.ontimeupdate = null; video.onended = null;
