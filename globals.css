@@ -83,3 +83,72 @@ html {
 .match strong { color: #7ee0c3; font-size: 1.05rem; }
 .match-bar { height: 6px; margin-top: 6px; border-radius: 999px; background: rgba(255,255,255,0.1); overflow: hidden; }
 .match-bar span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3b82f6, #7ee0c3); }
+
+
+/* Separate Photo Library and Video Library tabs */
+.library-switcher {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 24px 0 18px;
+}
+.library-tab {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  width: 100%;
+  min-height: 88px;
+  padding: 16px 20px;
+  text-align: left;
+  border: 1px solid #344873;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #111f43, #0a122c);
+  color: #c5d2ed;
+  cursor: pointer;
+  transition: border-color .2s, background .2s, transform .2s;
+}
+.library-tab:hover { border-color: #48b9ff; transform: translateY(-2px); }
+.library-tab.active {
+  border-color: #299be8;
+  background: linear-gradient(110deg, #123d72, #173b83);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(72,185,255,.16) inset;
+}
+.library-tab-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 13px;
+  background: rgba(72,185,255,.14);
+  color: #65c6ff;
+  font-size: 27px;
+}
+.library-tab-copy { display: flex; flex-direction: column; gap: 5px; }
+.library-tab-copy strong { font-size: 15px; font-weight: 800; }
+.library-tab-copy small { color: #aabce1; font-size: 12px; }
+.library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px 0 16px;
+}
+.library-heading h2 { margin: 0 0 6px; font-size: 22px; font-weight: 800; }
+.library-heading .section-sub { margin: 0; }
+.library-count {
+  color: #70d9ca;
+  border: 1px solid rgba(87,217,197,.28);
+  background: rgba(87,217,197,.08);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  font-weight: 800;
+}
+@media(max-width:560px) {
+  .library-switcher { grid-template-columns: 1fr; }
+  .library-tab { min-height: 76px; }
+  .library-heading { align-items: flex-start; flex-direction: column; }
+}
