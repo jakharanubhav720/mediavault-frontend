@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Media = {
   id: number; filename: string; media_type: string; size_bytes?: number;
@@ -28,6 +28,19 @@ export default function Home() {
   const [editContrast, setEditContrast] = useState(100);
   const [editSaturation, setEditSaturation] = useState(100);
   const [editCrop, setEditCrop] = useState("Original");
+  const [videoEditorItem, setVideoEditorItem] = useState<Media | null>(null);
+  const [videoObjectUrl, setVideoObjectUrl] = useState("");
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoTrimStart, setVideoTrimStart] = useState(0);
+  const [videoTrimEnd, setVideoTrimEnd] = useState(0);
+  const [videoRotation, setVideoRotation] = useState(0);
+  const [videoBrightness, setVideoBrightness] = useState(100);
+  const [videoContrast, setVideoContrast] = useState(100);
+  const [videoSaturation, setVideoSaturation] = useState(100);
+  const [videoMuted, setVideoMuted] = useState(false);
+  const [videoExporting, setVideoExporting] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const videoCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   async function loadMedia() {
     try {
@@ -191,6 +204,132 @@ export default function Home() {
     }
   }
 
+
+  async function openVideoEditor(item: Media) {
+    setVideoEditorItem(item);
+    setVideoDuration(0); setVideoTrimStart(0); setVideoTrimEnd(0);
+    setVideoRotation(0); setVideoBrightness(100); setVideoContrast(100);
+    setVideoSaturation(100); setVideoMuted(false);
+    setVideoObjectUrl("");
+    try {
+      // Use a local blob URL so canvas-based video export can read the frames.
+      const response = await fetch(mediaUrl(item));
+      if (!response.ok) throw new Error("Could not load this video.");
+      const blob = await response.blob();
+      setVideoObjectUrl(URL.createObjectURL(blob));
+    } catch (error) {
+      setStatus(`Video editor could not load the file: ${error instanceof Error ? error.message : "network error"}`);
+      setVideoEditorItem(null);
+    }
+  }
+
+  function closeVideoEditor() {
+    setVideoEditorItem(null);
+    if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
+    setVideoObjectUrl("");
+  }
+
+  async function exportEditedVideo(saveToLibrary: boolean) {
+    const video = videoRef.current;
+    const canvas = videoCanvasRef.current;
+    if (!video || !canvas || !videoObjectUrl) return;
+    if (!("MediaRecorder" in window) || !canvas.captureStream || !video.captureStream) {
+      setStatus("Video export is not supported by this browser. Try the latest Chrome or Edge.");
+      return;
+    }
+    if (videoTrimEnd <= videoTrimStart) {
+      setStatus("Choose a valid trim range. End time must be after start time.");
+      return;
+    }
+    setVideoExporting(true); setStatus("Rendering edited video in your browser…");
+    let animation = 0;
+    try {
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      const rotated = videoRotation % 180 !== 0;
+      canvas.width = rotated ? height : width;
+      canvas.height = rotated ? width : height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Could not initialize the video editor canvas.");
+
+      const drawFrame = () => {
+        if (!ctx || !video) return;
+        ctx.save();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(videoRotation * Math.PI / 180);
+        ctx.filter = `brightness(${videoBrightness}%) contrast(${videoContrast}%) saturate(${videoSaturation}%)`;
+        ctx.drawImage(video, -width / 2, -height / 2, width, height);
+        ctx.restore();
+        if (!video.paused && !video.ended) animation = requestAnimationFrame(drawFrame);
+      };
+
+      await new Promise<void>((resolve, reject) => {
+        const onSeeked = () => { video.removeEventListener("seeked", onSeeked); resolve(); };
+        video.addEventListener("seeked", onSeeked);
+        video.currentTime = videoTrimStart;
+        if (Math.abs(video.currentTime - videoTrimStart) < .05) {
+          video.removeEventListener("seeked", onSeeked); resolve();
+        }
+        window.setTimeout(() => reject(new Error("Video seek timed out.")), 10000);
+      });
+
+      drawFrame();
+      const canvasStream = canvas.captureStream(30);
+      const sourceStream = video.captureStream();
+      const tracks = [...canvasStream.getVideoTracks(), ...(videoMuted ? [] : sourceStream.getAudioTracks())];
+      const outputStream = new MediaStream(tracks);
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+        ? "video/webm;codecs=vp9,opus"
+        : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus") ? "video/webm;codecs=vp8,opus" : "video/webm";
+      const recorder = new MediaRecorder(outputStream, { mimeType });
+      const chunks: BlobPart[] = [];
+      const finished = new Promise<Blob>((resolve, reject) => {
+        recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+        recorder.onerror = () => reject(new Error("Video rendering failed."));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
+      });
+      video.onended = () => { if (recorder.state !== "inactive") recorder.stop(); };
+      video.ontimeupdate = () => {
+        if (video.currentTime >= videoTrimEnd && recorder.state !== "inactive") {
+          video.pause(); recorder.stop();
+        }
+      };
+      recorder.start(250);
+      await video.play();
+      await finished;
+      cancelAnimationFrame(animation);
+      video.ontimeupdate = null; video.onended = null;
+      video.pause();
+      tracks.forEach((track) => track.stop());
+      sourceStream.getTracks().forEach((track) => track.stop());
+      const outputBlob = new Blob(chunks, { type: "video/webm" });
+      const baseName = videoEditorItem?.filename.replace(/\.[^.]+$/, "") || "mediavault-video";
+      const outputName = `edited-${baseName}.webm`;
+      if (saveToLibrary) {
+        const form = new FormData();
+        form.append("file", outputBlob, outputName);
+        const response = await fetch(`${API}/media`, { method: "POST", body: form });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || `Upload failed with status ${response.status}`);
+        setStatus("Edited video saved as a new library item. The original is unchanged.");
+        closeVideoEditor();
+        await loadMedia();
+      } else {
+        const url = URL.createObjectURL(outputBlob);
+        const link = document.createElement("a");
+        link.href = url; link.download = outputName; link.click();
+        URL.revokeObjectURL(url);
+        setStatus("Edited video downloaded as a WebM copy. The original is unchanged.");
+      }
+    } catch (error) {
+      setStatus(`Video edit failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      cancelAnimationFrame(animation);
+      setVideoExporting(false);
+    }
+  }
+
   async function deleteItem(item: Media) {
     if (!confirm(`Remove ${item.filename}?`)) return;
     try {
@@ -208,6 +347,7 @@ export default function Home() {
       {item.description && item.description !== item.filename && <details><summary>AI description</summary><p>{item.description}</p></details>}
       {item.match_percent !== undefined && <div className="match"><strong>Match: {Number(item.match_percent).toFixed(1)}%</strong><div className="match-bar"><span style={{ width: `${Math.min(100, Math.max(0, Number(item.match_percent)))}%` }} /></div></div>}
       {item.media_type === "Image" && <button className="button secondary small" onClick={() => openEditor(item)}>✦ Edit photo</button>}
+      {item.media_type === "Video" && <button className="button secondary small" onClick={() => void openVideoEditor(item)}>✦ Edit video</button>}
       <button className="button secondary small" onClick={() => void deleteItem(item)}>Remove</button></div>
     </article>)}</div>;
   }
@@ -248,6 +388,43 @@ export default function Home() {
     {page === "AI Search" && <><Hero eyebrow="AI-POWERED DISCOVERY" title={<>Search by <span>Meaning.</span></>} text="Describe what you remember seeing, or upload a reference image. MediaVault searches indexed descriptions and ranks relevant results."/><div className="panel"><h2>🔎 Natural-language search</h2><p className="muted">Examples: a dog running on grass, students in a classroom, a red car near a mountain.</p><div className="search-row"><input value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void runAiSearch(); }} placeholder="Describe the media you want to find…"/><button className="button primary" disabled={busy} onClick={() => void runAiSearch()}>Search Media with AI</button></div><hr className="divider"/><h2>🖼️ Search by reference image</h2><p className="muted">Choose an image and see every saved image ranked by how closely it matches.</p><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setVisualFile(e.target.files?.[0] || null)}/><button className="button primary" disabled={busy} onClick={() => void runVisualSearch()}>{busy ? "Searching…" : "Find Visually Similar Media"}</button> <button className="button secondary" disabled={busy} onClick={() => void runReindex()}>Re-index saved images</button></div>{aiResults.length > 0 && <><h2 className="section-title">Search Results</h2>{cards(aiResults)}</>}</>}
 
     {page === "About" && <><Hero eyebrow="ABOUT THE PROJECT" title={<>Multimedia Database<br/><span>Management System</span></>} text="A multimedia management platform combining database storage with AI-assisted discovery."/><div className="panel about"><h2>Project Overview</h2><p>MediaVault stores uploaded images and videos, records their metadata in SQLite, and exposes a FastAPI backend. Optional AI features generate image descriptions and embeddings for natural-language and reference-image search.</p><h2>Main Features</h2><ul><li>Persistent SQLite metadata storage</li><li>Upload, preview, browse and delete media</li><li>Search and filter by filename, description and media type</li><li>AI-generated image descriptions</li><li>Semantic search using natural-language queries</li><li>Reference-image visual similarity search</li></ul><h2>Technology Stack</h2><p>Next.js frontend · FastAPI backend · SQLite database · file storage · local image-similarity matching with optional Gemini text search</p></div></>}
+    {videoEditorItem && <div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !videoExporting) closeVideoEditor(); }}>
+      <section className="photo-editor video-editor" role="dialog" aria-modal="true" aria-label="Video editor">
+        <header className="editor-header"><div><span className="editor-kicker">MEDIAVAULT STUDIO</span><h2>Edit video</h2><p>{videoEditorItem.filename} · Original file stays untouched</p></div><button className="editor-close" onClick={closeVideoEditor} aria-label="Close editor" disabled={videoExporting}>×</button></header>
+        <div className="editor-layout">
+          <div className="video-editor-preview-column">
+            {videoObjectUrl ? <video ref={videoRef} className="video-editor-preview" src={videoObjectUrl} controls playsInline onLoadedMetadata={(event) => { const duration = event.currentTarget.duration; setVideoDuration(duration); setVideoTrimEnd(duration); }} style={{ filter: `brightness(${videoBrightness}%) contrast(${videoContrast}%) saturate(${videoSaturation}%)`, transform: `rotate(${videoRotation}deg)` }}/> : <div className="editor-preview-wrap">Loading video…</div>}
+            <canvas ref={videoCanvasRef} className="video-export-canvas"/>
+            <div className="video-trim-panel">
+              <h3><span>✂</span> Trim video</h3>
+              <div className="video-time-inputs">
+                <label>Start (seconds)<input type="number" min="0" max={Math.max(0, videoDuration)} step=".1" value={videoTrimStart} onChange={(e) => setVideoTrimStart(Math.max(0, Math.min(Number(e.target.value), videoDuration)))}/></label>
+                <label>End (seconds)<input type="number" min="0" max={Math.max(0, videoDuration)} step=".1" value={videoTrimEnd} onChange={(e) => setVideoTrimEnd(Math.max(0, Math.min(Number(e.target.value), videoDuration)))}/></label>
+              </div>
+              <div className="video-trim-range"><input aria-label="Trim start" type="range" min="0" max={Math.max(0, videoDuration)} step=".1" value={Math.min(videoTrimStart, videoDuration)} onChange={(e) => setVideoTrimStart(Math.min(Number(e.target.value), videoTrimEnd))}/><input aria-label="Trim end" type="range" min="0" max={Math.max(0, videoDuration)} step=".1" value={Math.min(videoTrimEnd, videoDuration)} onChange={(e) => setVideoTrimEnd(Math.max(Number(e.target.value), videoTrimStart))}/></div>
+              <p className="video-duration-note">Selected duration: {Math.max(0, videoTrimEnd - videoTrimStart).toFixed(1)}s · Total: {videoDuration.toFixed(1)}s</p>
+            </div>
+          </div>
+          <div className="editor-controls">
+            <div className="editor-group"><h3>Quick tools</h3><div className="editor-tool-row">
+              <button className="editor-tool" onClick={() => setVideoRotation((v) => (v - 90 + 360) % 360)}>↶<span>Rotate left</span></button>
+              <button className="editor-tool" onClick={() => setVideoRotation((v) => (v + 90) % 360)}>↷<span>Rotate right</span></button>
+              <button className={`editor-tool ${videoMuted ? "selected" : ""}`} onClick={() => setVideoMuted((v) => !v)}>{videoMuted ? "×" : "♪"}<span>{videoMuted ? "Muted" : "Mute audio"}</span></button>
+            </div></div>
+            <div className="editor-group"><h3>Adjust video</h3>
+              <label className="editor-slider">Brightness <output>{videoBrightness}%</output><input type="range" min="50" max="150" value={videoBrightness} onChange={(e) => setVideoBrightness(Number(e.target.value))}/></label>
+              <label className="editor-slider">Contrast <output>{videoContrast}%</output><input type="range" min="50" max="150" value={videoContrast} onChange={(e) => setVideoContrast(Number(e.target.value))}/></label>
+              <label className="editor-slider">Saturation <output>{videoSaturation}%</output><input type="range" min="0" max="200" value={videoSaturation} onChange={(e) => setVideoSaturation(Number(e.target.value))}/></label>
+            </div>
+            <div className="editor-actions">
+              <button className="button secondary" disabled={videoExporting} onClick={() => { setVideoTrimStart(0); setVideoTrimEnd(videoDuration); setVideoRotation(0); setVideoBrightness(100); setVideoContrast(100); setVideoSaturation(100); setVideoMuted(false); }}>Reset edits</button>
+              <button className="button secondary" disabled={videoExporting || !videoObjectUrl} onClick={() => void exportEditedVideo(false)}>{videoExporting ? "Rendering…" : "Download edited video"}</button>
+              <button className="button primary" disabled={videoExporting || !videoObjectUrl} onClick={() => void exportEditedVideo(true)}>{videoExporting ? "Rendering…" : "Save as new video"}</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>}
     {editorItem && <div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorItem(null); }}>
       <section className="photo-editor" role="dialog" aria-modal="true" aria-label="Photo editor">
         <header className="editor-header"><div><span className="editor-kicker">MEDIAVAULT STUDIO</span><h2>Edit photo</h2><p>{editorItem.filename} · Original file stays untouched</p></div><button className="editor-close" onClick={() => setEditorItem(null)} aria-label="Close editor">×</button></header>
