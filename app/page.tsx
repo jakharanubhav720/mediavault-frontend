@@ -99,7 +99,7 @@ export default function Home() {
     try {
       const r = await fetch(`${API}/search/visual`, { method: "POST", body: form });
       const data = await r.json(); if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
-      const list: Media[] = ((data.items || []) as Media[]).slice().sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+      const list: Media[] = ((data.items || []) as Media[]).filter((item) => Number(item.match_percent ?? item.similarity ?? 0) > 0).slice().sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
       setAiResults(list);
       if (!list.length) setStatus(data.not_indexed ? `No comparable images found. ${data.not_indexed} saved image(s) are not indexed yet - press "Re-index saved images".` : "No matching images found. Upload some images first.");
       else setStatus(`${list.length} image(s) ranked by visual similarity (highest match first).${data.not_indexed ? ` ${data.not_indexed} saved image(s) are not indexed yet.` : ""}`);
