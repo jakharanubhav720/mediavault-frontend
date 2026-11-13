@@ -20,6 +20,7 @@ export default function Home() {
   const [aiQuery, setAiQuery] = useState("");
   const [aiResults, setAiResults] = useState<Media[]>([]);
   const [visualFile, setVisualFile] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editorItem, setEditorItem] = useState<Media | null>(null);
   const [editRotation, setEditRotation] = useState(0);
@@ -66,8 +67,8 @@ export default function Home() {
   const bytes = items.reduce((n, x) => n + (x.size_bytes || 0), 0);
   const mediaUrl = (item: Media) => item.url?.startsWith("http") ? item.url : `${API}${item.url || ""}`;
 
-  async function uploadFiles(e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
+  async function uploadFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
     if (!files.length) return;
     setBusy(true); setStatus("");
     let success = 0; const errors: string[] = [];
@@ -80,7 +81,7 @@ export default function Home() {
       } catch (err) { errors.push(`${file.name}: ${err instanceof Error ? err.message : "upload failed"}`); }
     }
     setStatus(`${success} file(s) uploaded.${errors.length ? ` Errors: ${errors.join("; ")}` : ""}`);
-    await loadMedia(); setBusy(false); e.target.value = "";
+    await loadMedia(); setBusy(false);
   }
   async function runAiSearch() {
     if (!aiQuery.trim()) { setStatus("Enter a description to search."); return; }
@@ -99,7 +100,10 @@ export default function Home() {
     try {
       const r = await fetch(`${API}/search/visual`, { method: "POST", body: form });
       const data = await r.json(); if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
-      const list: Media[] = ((data.items || []) as Media[]).filter((item) => Number(item.match_percent ?? item.similarity ?? 0) > 0).slice().sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+      const list: Media[] = ((data.items || []) as Media[]).filter((item) => {
+        const score = Number(item.match_percent ?? ((item.similarity ?? 0) * 100));
+        return Number.isFinite(score) && score >= 0.05;
+      }).slice().sort((a, b) => Number(b.match_percent ?? ((b.similarity ?? 0) * 100)) - Number(a.match_percent ?? ((a.similarity ?? 0) * 100)));
       setAiResults(list);
       if (!list.length) setStatus(data.not_indexed ? `No comparable images found. ${data.not_indexed} saved image(s) are not indexed yet - press "Re-index saved images".` : "No matching images found. Upload some images first.");
       else setStatus(`${list.length} image(s) ranked by visual similarity (highest match first).${data.not_indexed ? ` ${data.not_indexed} saved image(s) are not indexed yet.` : ""}`);
@@ -386,9 +390,9 @@ export default function Home() {
       {cards(filtered)}
     </>}
 
-    {page === "Upload Media" && <><Hero eyebrow="UPLOAD CENTER" title={<>Add Your <span>Media.</span></>} text="Upload images and videos to your MediaVault library. Supported formats: PNG, JPG, JPEG, WEBP, GIF, MP4, MOV, WEBM and AVI."/><div className="panel upload-panel"><label className="upload-box"><span className="upload-icon">⇧</span><strong>{busy ? "Uploading files…" : "Choose images or videos"}</strong><span>Click to select one or more files · up to 50 MB each</span><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,video/x-msvideo" onChange={(e) => void uploadFiles(e)} disabled={busy}/></label>{status && <p className="status-text">{status}</p>}</div></>}
+    {page === "Upload Media" && <><Hero eyebrow="UPLOAD CENTER" title={<>Add Your <span>Media.</span></>} text="Upload images and videos to your MediaVault library. Supported formats: PNG, JPG, JPEG, WEBP, GIF, MP4, MOV, WEBM and AVI."/><div className="panel upload-panel"><label className={`upload-box premium-dropzone ${dragActive ? "drag-active" : ""} ${busy ? "is-busy" : ""}`} onDragOver={(e) => { e.preventDefault(); if (!busy) setDragActive(true); }} onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }} onDrop={(e) => { e.preventDefault(); setDragActive(false); if (!busy && e.dataTransfer.files.length) void uploadFiles(e.dataTransfer.files); }}><span className="upload-icon premium-upload-icon">↥</span><strong>{busy ? "Uploading your media…" : dragActive ? "Drop your files here" : "Drag & drop your media"}</strong><span>or <span className="upload-browse">browse files</span> from your device</span><small>JPG · PNG · WEBP · GIF · MP4 · MOV · WEBM · up to 50 MB each</small><input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/quicktime,video/webm,video/x-msvideo" onChange={(e) => { if (e.target.files?.length) void uploadFiles(e.target.files); e.target.value = ""; }} disabled={busy}/></label>{status && <p className="status-text">{status}</p>}</div></>}
 
-    {page === "AI Search" && <><Hero eyebrow="AI-POWERED DISCOVERY" title={<>Search by <span>Meaning.</span></>} text="Find images by natural-language descriptions and compare photos using SigLIP 2 embeddings. Similarity scores rank results; they are not probabilities."/><div className="panel"><h2>🔎 Search media by description</h2><p className="muted">Search saved images by meaning using the local SigLIP 2 image-text model.</p><div className="search-row"><input value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void runAiSearch(); }} placeholder="Describe the media you want to find…"/><button className="button primary" disabled={busy} onClick={() => void runAiSearch()}>Search media</button></div><hr className="divider"/><h2>🖼️ Find visually similar photos</h2><p className="muted">Upload a reference photo. MediaVault compares it with saved photos using SigLIP 2 image embeddings. Results are ranked by cosine similarity; this score is not a probability, confidence, or percentage of visual identity.</p><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setVisualFile(e.target.files?.[0] || null)}/><button className="button primary" disabled={busy} onClick={() => void runVisualSearch()}>{busy ? "Searching…" : "Find Similar Photos"}</button> <button className="button secondary" disabled={busy} onClick={() => void runReindex()}>Re-index saved images</button></div>{aiResults.length > 0 && <><h2 className="section-title">Search Results</h2>{cards(aiResults)}</>}</>}
+    {page === "AI Search" && <><Hero eyebrow="AI-POWERED DISCOVERY" title={<>Search by <span>Meaning.</span></>} text="Find images by natural-language descriptions and compare photos using SigLIP 2 embeddings. Similarity scores rank results; they are not probabilities."/><div className="panel ai-search-panel"><h2>🔎 Search media by description</h2><p className="muted">Search saved images by meaning using the local SigLIP 2 image-text model.</p><div className="search-row"><input value={aiQuery} onChange={(e) => setAiQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void runAiSearch(); }} placeholder="Describe the media you want to find…"/><button className="button primary" disabled={busy} onClick={() => void runAiSearch()}>Search media</button></div><hr className="divider"/><h2>🖼️ Find visually similar photos</h2><p className="muted">Upload a reference photo. MediaVault compares it with saved photos using SigLIP 2 image embeddings. Results are ranked by cosine similarity; this score is not a probability, confidence, or percentage of visual identity.</p><label className="visual-dropzone"><span className="visual-drop-icon">▧</span><strong>{visualFile ? visualFile.name : "Choose a reference photo"}</strong><small>JPG, PNG, WEBP or GIF</small><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setVisualFile(e.target.files?.[0] || null)}/></label><button className="button primary" disabled={busy} onClick={() => void runVisualSearch()}>{busy ? "Searching…" : "Find Similar Photos"}</button> <button className="button secondary" disabled={busy} onClick={() => void runReindex()}>Re-index saved images</button></div>{aiResults.length > 0 && <><h2 className="section-title">Search Results</h2>{cards(aiResults)}</>}</>}
 
     {page === "About" && <><Hero eyebrow="ABOUT THE PROJECT" title={<>Multimedia Database<br/><span>Management System</span></>} text="A multimedia management platform combining database storage with AI-assisted discovery."/><div className="panel about"><h2>Project Overview</h2><p>MediaVault stores uploaded images and videos, records their metadata in SQLite, and exposes a FastAPI backend. Optional AI features generate image descriptions and embeddings for natural-language and reference-image search.</p><h2>Main Features</h2><ul><li>Persistent SQLite metadata storage</li><li>Upload, preview, browse and delete media</li><li>Search and filter by filename, description and media type</li><li>AI-generated image descriptions</li><li>Semantic search using natural-language queries</li><li>Reference-image visual similarity search</li></ul><h2>Technology Stack</h2><p>Next.js frontend · FastAPI backend · SQLite database · file storage · local image-similarity matching with optional Gemini text search</p></div></>}
     {videoEditorItem && <div className="editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !videoExporting) closeVideoEditor(); }}>
