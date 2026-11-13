@@ -352,6 +352,7 @@ export default function Home() {
       {item.media_type === "Image" ? <img className="preview" src={mediaUrl(item)} alt={item.filename} /> : <video className="preview" src={mediaUrl(item)} controls />}
       <div className="card-body"><strong>{item.filename}</strong><p>{item.media_type} · {((item.size_bytes || 0) / 1024).toFixed(1)} KB</p>
       {item.description && item.description !== item.filename && <details><summary>AI description</summary><p>{item.description}</p></details>}
+      {Array.isArray((item as any).tags) && (item as any).tags.length > 0 && <div className="mv-tag-list">{(item as any).tags.map((tag: any) => <span className="mv-tag" key={tag.tag}>{tag.tag}</span>)}</div>}
       {item.match_percent !== undefined ? <div className="match"><strong>Match: {Number(item.match_percent).toFixed(1)}%</strong><p className="muted">Calibrated visual relevance score — not a probability.</p></div> : item.similarity !== undefined && <div className="match"><strong>Cosine similarity: {Number(item.similarity).toFixed(3)}</strong><p className="muted">Ranking score only — not a probability.</p></div>}
       {item.media_type === "Image" && <button className="button secondary small" onClick={() => openEditor(item)}>✦ Edit photo</button>}
       {item.media_type === "Video" && <button className="button secondary small" onClick={() => void openVideoEditor(item)}>✦ Edit video</button>}
@@ -362,6 +363,7 @@ export default function Home() {
   return <main className="shell">
     <header className="topbar"><div className="brand"><div className="brand-title">◈ Media<span>Vault</span></div><div className="brand-caption">MULTIMEDIA DATABASE SYSTEM</div></div>
       <nav>{pages.map((p) => <button key={p} onClick={() => { setPage(p); setStatus(""); }} className={`nav-button ${page === p ? "active" : ""}`}>{p}</button>)}</nav>
+      <a className="nav-button" href="/organize">✨ Organize</a>
     </header>
     <div className="rule" />
     {apiOk === false && <div className="notice error">Backend connection issue: {status || "Render API is not responding."}</div>}
