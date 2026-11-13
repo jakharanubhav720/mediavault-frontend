@@ -362,8 +362,7 @@ export default function Home() {
 
   return <main className="shell">
     <header className="topbar"><div className="brand"><div className="brand-title">◈ Media<span>Vault</span></div><div className="brand-caption">MULTIMEDIA DATABASE SYSTEM</div></div>
-      <nav>{pages.map((p) => <button key={p} onClick={() => { setPage(p); setStatus(""); }} className={`nav-button ${page === p ? "active" : ""}`}>{p}</button>)}</nav>
-      <a className="nav-button" href="/organize">✨ Organize</a>
+      <nav aria-label="Main navigation">{pages.map((p) => <button key={p} onClick={() => { setPage(p); setStatus(""); }} className={`nav-button ${page === p ? "active" : ""}`}>{p}</button>)}<a className="nav-button organize-nav" href="/organize">✨ Organize</a></nav>
     </header>
     <div className="rule" />
     {apiOk === false && <div className="notice error">Backend connection issue: {status || "Render API is not responding."}</div>}
